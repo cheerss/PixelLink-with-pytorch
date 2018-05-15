@@ -11,7 +11,7 @@ def loss_calculator(out_1, out_2, pixel_masks, link_masks, pixel_weights):
     return loss
 
 def pixel_loss(pixel_outputs, pixel_masks, pixel_weights):
-    r = config.negative_positive_ratio
+    r = config.neg_pos_ratio
     loss_pixel = nn.functional.cross_entropy(pixel_outputs, pixel_masks, reduce=False)
     postive_areas = torch.Tensor([torch.nonzero(pixel_mask).size(0) for pixel_mask in pixel_masks]).cuda()
     weights = pixel_weights + OHDM_weights(pixel_outputs, pixel_masks)

@@ -7,6 +7,9 @@ import random
 import math
 import copy
 import time
+import cv2
+import numpy as np
+from torchvision import transforms
 
 class ICDAR15Dataset(Dataset):
     def __init__(self, images_dir, labels_dir):
@@ -23,7 +26,8 @@ class ICDAR15Dataset(Dataset):
     def read_datasets(self, dir, num):
         res = []
         for i in range(1, num+1):
-            res.append(Image.open(dir+ "img_" + str(i) + ".jpg"))
+            image = Image.open(dir+ "img_" + str(i) + ".jpg")
+            res.append(image)
             if i % 100 == 0:
                 print(i)
         # print(res[0].shape)
@@ -48,182 +52,175 @@ class PixelLinkIC15Dataset(ICDAR15Dataset):
 
     def __getitem__(self, index):
         image, label = self.data_transform(index)
-        return {'image': image, 'label': label}
+        image = transforms.ToTensor()(image)
+        pixel_mask, pixel_pos_weight, link_mask = \
+            PixelLinkIC15Dataset.label_to_mask_and_pixel_pos_weight(label, list(image.shape[1:]))
+        return {'image': image, 'pixel_mask': pixel_mask,
+                'pixel_pos_weight': pixel_pos_weight, 'link_mask': link_mask}
 
     def data_transform(self, index):
-        image = self.all_images[index]
-        label = self.all_labels[index]
+        while True:
+            image = self.all_images[index]
+            label = self.all_labels[index]
+            rotate_rand = random.randint(0, 3)
+            origin_h = image.size[1]
+            origin_w = image.size[0]
+            # rotate
+            image = image.rotate(90 * rotate_rand, expand=True) # counter clockwise
+            # image.save("rotate.jpg", "JPEG")
+            aspect_ratio_rand = 0.5 + random.random() * 1.5
+            # print("rotate " + str(90 * rotate_rand) + " degrees")
 
-        rotate_rand = random.randint(0, 3)
-        # rotate
-        image = image.rotate(90 * rotate_rand, expand=True)
-        image.save("rotate.jpg", "JPEG")
-        aspect_ratio_rand = 0.5 + random.random() * 1.5
-        # print("rotate " + str(90 * rotate_rand) + " degrees")
+            # print(image.size)
+            h = image.size[1]
+            w = image.size[0]
+            # print("original size(h, w): (" + str(h) + " " + str(w) + ")")
+            area = h * w
+            for attempt in range(10):
+                scale_rand = 0.1 + random.random() * 0.9
+                new_area = area * scale_rand
+                new_h = int(round(math.sqrt(new_area / aspect_ratio_rand)))
+                new_w = int(round(math.sqrt(new_area * aspect_ratio_rand)))
+                if new_h < h and new_w < w:
+                    new_h_start = random.randint(0, h - new_h)
+                    new_w_start = random.randint(0, w - new_w)
+                    break
+            else:
+                new_w = min(h, w)
+                new_h = new_w
+                new_h_start = (h - new_h) // 2
+                new_w_start = (w - new_w) // 2
+            # print("size after crop should be (h, w): (" + str(new_h) + " " + str(new_w) + ")")
+            # print("start after crop(h, w): (" + str(new_h_start) + " " + str(new_w_start) + ")")
 
-        # print(image.size)
-        h = image.size[1]
-        w = image.size[0]
-        # print("original size(h, w): (" + str(h) + " " + str(w) + ")")
-        area = h * w
-        for attempt in range(10):
-            scale_rand = 0.1 + random.random() * 0.9
-            new_area = area * scale_rand
-            new_h = int(round(math.sqrt(new_area / aspect_ratio_rand)))
-            new_w = int(round(math.sqrt(new_area * aspect_ratio_rand)))
-            if new_h < h and new_w < w:
-                new_h_start = random.randint(0, h - new_h)
-                new_w_start = random.randint(0, w - new_w)
+            # crop
+            image = image.crop((new_w_start, new_h_start, new_w_start + new_w, new_h_start + new_h))
+            # print("size after crop(h, w): (" + str(image.size[1]) + " " + str(image.size[0]) + ")")
+            # image.save("crop.jpg", "JPEG")
+            # resize
+            image = image.resize((512, 512), resample=Image.BILINEAR)
+            # image.save("resize.jpg", "JPEG")
+            # print("size after resize(h, w): (" + str(image.size[1]) + " " + str(image.size[0]) + ")")
+
+            new_label = copy.deepcopy(label)
+            new_label = np.array(new_label)
+            new_label = new_label.reshape([-1, 4, 2])
+            # ground truth file: x along width, y along height, ours: x along height, y along width
+            # new_label[:, :, [0, 1]] = new_label[:, :, [1, 0]]
+            # print("origin new label: " + str(new_label))
+            box_areas = []
+            for i in range(new_label.shape[0]):
+                box_areas.append(cv2.contourArea(new_label[i]))
+
+            # label rotate counter clockwise
+            for i in range(rotate_rand):
+                new_label[:, :, 0] = origin_w - 1 - new_label[:, :, 0]
+                new_label[:, :, [0, 1]] = new_label[:, :, [1, 0]]
+                origin_h, origin_w = origin_w, origin_h
+
+            # label crop
+            new_label[:, :, 1] -= new_h_start
+            new_label[:, :, 0] -= new_w_start
+            new_label[new_label < 0] = 0
+            new_label[:, :, 1][new_label[:, :, 1] >= new_h] = new_h - 1
+            new_label[:, :, 0][new_label[:, :, 0] >= new_w] = new_w - 1
+
+            # label resize
+            new_label[:, :, 1] = new_label[:, :, 1] * 512 / new_h
+            new_label[:, :, 0] = new_label[:, :, 0] * 512 / new_w
+            new_label = new_label.astype(int)
+
+            # delete the boxes which unsatisfy the conditions
+            delete_index = []
+            for i in range(new_label.shape[0]):
+                box = new_label[i]
+                # min_side = min(box[3] - box[1], box[6] - box[0])
+
+                # if min_side < 10:
+                #     delete_index.append(i)
+                #     continue
+                new_box_area = cv2.contourArea(box)
+                if new_box_area / box_areas[i] < 0.2:
+                    delete_index.append(i)
+            new_label = np.delete(new_label, delete_index, 0)
+            if new_label.shape[0] > 0:
                 break
-        else:
-            new_w = min(h, w)
-            new_h = new_w
-            new_h_start = (h - new_w) // 2
-            new_w_start = (w - new_w) // 2
-        # print("size after crop should be (h, w): (" + str(new_h) + " " + str(new_w) + ")")
-        # print("start after crop(h, w): (" + str(new_h_start) + " " + str(new_w_start) + ")")
-
-        # crop
-        image = image.crop((new_w_start, new_h_start, new_w_start+new_w, new_h_start+new_h))
-        # print("size after crop(h, w): (" + str(image.size[1]) + " " + str(image.size[0]) + ")")
-        image.save("crop.jpg", "JPEG")
-        # resize
-        image = image.resize((512, 512), resample=Image.BILINEAR)
-        image.save("resize.jpg", "JPEG")
-        # print("size after resize(h, w): (" + str(image.size[1]) + " " + str(image.size[0]) + ")")
-
-        new_label = copy.deepcopy(label)
-        # ground truth file: x along width, y along height
-        box_areas = []
-        for box in new_label:
-                box[0], box[1] = box[1], box[0]
-                box[2], box[3] = box[3], box[2]
-                box[4], box[5] = box[5], box[4]
-                box[6], box[7] = box[7], box[6]
-                box_areas.append((box[3] - box[1]) * (box[6] - box[0]))
-                # print("box original: (" + str(box[0]) + "," + str(box[1]) + ") (" +
-                #                           str(box[2]) + "," + str(box[3]) + ") (" +
-                #                           str(box[4]) + "," + str(box[5]) + ") (" + 
-                #                           str(box[6]) + "," + str(box[7]) + ")")
-        # label rotate
-        for i in range(rotate_rand):
-            for box in new_label:
-                box[2], box[3] = box[1], h-1-box[0]
-                box[4], box[5] = box[3], h-1-box[2]
-                box[6], box[7] = box[5], h-1-box[4]
-                box[0], box[1] = box[7], h-1-box[6]
-        # for box in new_label:
-            # print("box after rotate: (" + str(box[0]) + "," + str(box[1]) + ") (" +
-            #                               str(box[2]) + "," + str(box[3]) + ") (" +
-            #                               str(box[4]) + "," + str(box[5]) + ") (" + 
-            #                               str(box[6]) + "," + str(box[7]) + ")")
-        # label crop
-        for box in new_label:
-            for i in range(4):
-                box[2*i] -= new_h_start
-                box[2*i+1] -= new_w_start
-                if(box[2*i] < 0):
-                    box[2*i] = 0
-                if(box[2*i+1] < 0):
-                    box[2*i+1] = 0
-            # print("box after crop: (" + str(box[0]) + "," + str(box[1]) + ") (" +
-            #                             str(box[2]) + "," + str(box[3]) + ") (" +
-            #                             str(box[4]) + "," + str(box[5]) + ") (" + 
-            #                             str(box[6]) + "," + str(box[7]) + ")")
-        # label resize
-        for box in new_label:
-            for i in range(4):
-                box[2*i] = int(box[2*i] * 512 / new_h)
-                box[2*i+1] = int(box[2*i+1] * 512 / new_w)
-            # print("box after resize: (" + str(box[0]) + "," + str(box[1]) + ") (" +
-            #                               str(box[2]) + "," + str(box[3]) + ") (" +
-            #                               str(box[4]) + "," + str(box[5]) + ") (" + 
-            #                               str(box[6]) + "," + str(box[7]) + ")")
-
-        # delete the boxes which unsatisfy the conditions
-        for i in range(len(new_label)-1, -1, -1):
-            box = new_label[i]
-            min_side = min(box[3] - box[1], box[6] - box[0])
-
-            if min_side < 10:
-                del new_label[i]
-                continue
-            new_box_area = (box[3] - box[1]) * (box[6] - box[0])
-            if new_box_area / box_areas[i] < 0.2:
-                del new_label[i]
+        assert (new_label >= 0).all()
         return image, new_label
 
     @staticmethod
-    def label_to_pixel_mask(label, img_size, version="2s"):
-        factor = 2
-        if version == "4s":
-            factor = 4
-        pixel_mask = torch.zeros(img_size / factor, dtype=torch.int8)
-        for box in label:
-            a_x = (int)((box[0] + box[2]) / 2 / factor)
-            b_x = (int)((box[4] + box[6]) / 2 / factor)
-            a_y = (int)((box[1] + box[7]) / 2 / factor)
-            b_y = (int)((box[3] + box[5]) / 2 / factor)
-            pixel_mask[a_x: b_x, a_y: b_y] = 1
-        return pixel_mask
-
-    @staticmethod
-    def label_to_pixel_weight(label, img_size, version="2s"):
-        """
-        Return: torch.FloatTensor(img_size / factor)
-        """
-        factor = 2
-        if version == "4s":
-            factor = 4
-        pixel_weight = torch.zeros(img_size / factor, dtype=torch.float)
-        # no box
-        if len(label) == 0:
-            return pixel_weight
-        label_areas = []
-        for box in label:
-            label_areas.append((box[4] - box[0]) * (box[5] - box[1]) / factor ** 2)
-        # all_areas = sum(label_areas)
-        avg_weight = sum(label_areas) / len(label)
-        for i in range(len(label)):
-            box = label[i]
-            a_x = (int)((box[0] + box[2]) / 2 / factor)
-            b_x = (int)((box[4] + box[6]) / 2 / factor)
-            a_y = (int)((box[1] + box[7]) / 2 / factor)
-            b_y = (int)((box[3] + box[5]) / 2 / factor)
-            pixel_weight[a_x: b_x, a_y: b_y] = avg_weight / label_areas[i]
-        return pixel_weight
-
-    @staticmethod
-    def label_to_link_mask(label, img_size, version="2s", neighbors=8):
+    def label_to_mask_and_pixel_pos_weight(label, img_size, version="2s", neighbors=8):
         """
         8 neighbors:
             0 1 2
             7 - 3
             6 5 4
-        Return: torch.FloatTensor(img_size / factor, neighbors)
         """
         factor = 2
         if version == "4s":
             factor = 4
-        link_mask_size = list(img_size / factor).append(neighbors)
-        link_mask = torch.zeros(link_mask_size, dtype=torch.int8)
-        for box in label:
-            a_x = (int)((box[0] + box[2]) / 2 / factor)
-            b_x = (int)((box[4] + box[6]) / 2 / factor)
-            a_y = (int)((box[1] + box[7]) / 2 / factor)
-            b_y = (int)((box[3] + box[5]) / 2 / factor)
-            link_mask[a_x + 1: b_x + 1, a_y + 1: b_y + 1, 0] = 1
-            link_mask[a_x + 1: b_x + 1, a_y + 0: b_y + 1, 1] = 1
-            link_mask[a_x + 1: b_x + 1, a_y + 0: b_y + 0, 2] = 1
-            link_mask[a_x + 0: b_x + 1, a_y + 0: b_y + 0, 3] = 1
-            link_mask[a_x + 0: b_x + 0, a_y + 0: b_y + 0, 4] = 1
-            link_mask[a_x + 0: b_x + 0, a_y + 0: b_y + 1, 5] = 1
-            link_mask[a_x + 0: b_x + 0, a_y + 1: b_y + 1, 6] = 1
-            link_mask[a_x + 0: b_x + 1, a_y + 1: b_y + 1, 7] = 1
-        return link_mask
+
+        # label = np.array(label)
+        label.reshape([-1, 1, 4, 2])
+        pixel_mask_size = [int(i / factor) for i in img_size]
+        link_mask_size = [neighbors, ] + pixel_mask_size
+
+        pixel_mask = np.zeros(pixel_mask_size, dtype=np.uint8)
+        pixel_weight = np.zeros(pixel_mask_size, dtype=np.float)
+        link_mask = np.zeros(link_mask_size, dtype=np.uint8)
+        # if label.shape[0] == 0:
+            # return torch.LongTensor(pixel_mask), torch.Tensor(pixel_weight), torch.LongTensor(link_mask)
+        label = (label / factor).astype(int) # label's coordinate value should be divided
+
+        cv2.drawContours(pixel_mask, label, -1, 1, thickness=-1)
+        pixel_mask_area = np.count_nonzero(pixel_mask) # total area
+        avg_weight_per_box = pixel_mask_area / label.shape[0]
+
+        for i in range(label.shape[0]): # num of box
+            pixel_weight_tmp = np.zeros(pixel_mask_size, dtype=np.float)
+            cv2.drawContours(pixel_weight_tmp, [label[i]], -1, avg_weight_per_box, thickness=-1)
+            weight_tmp_nonzero = pixel_weight_tmp.nonzero()
+            weight_nonzero = pixel_weight.nonzero()
+            pixel_weight[weight_tmp_nonzero] = 0 # when overlapping, only field without overlapping counts
+            pixel_weight_tmp[weight_nonzero] = 0
+            area = np.count_nonzero(pixel_weight_tmp) # area per box
+            if area <= 0:
+                  print("area label: " + str(label[i]))
+            pixel_weight_tmp /= area
+            pixel_weight += pixel_weight_tmp
+
+            # link mask
+            weight_tmp_nonzero = pixel_weight_tmp.nonzero()
+            link_mask_tmp = np.zeros(link_mask_size, dtype=np.uint8)
+            for i in range(link_mask_size[0]): # neighbors directions
+                link_mask_tmp[i][weight_tmp_nonzero] = 1
+            link_mask_shift = np.zeros(link_mask_size, dtype=np.uint8)
+            w_index = weight_tmp_nonzero[1]
+            w_index1 = w_index + 1
+            w_index1[w_index1 >= link_mask_size[1]] = link_mask_size[1] - 1
+            w_index_1 = w_index - 1
+            w_index_1[w_index_1 < 0] = 0
+            h_index = weight_tmp_nonzero[0]
+            h_index1 = h_index + 1
+            h_index1[h_index1 >= link_mask_size[2]] = link_mask_size[2] - 1
+            h_index_1 = h_index - 1
+            h_index_1[h_index_1 < 0] = 0
+            link_mask_shift[0][h_index1, w_index1] = 1
+            link_mask_shift[1][h_index1, w_index] = 1
+            link_mask_shift[2][h_index1, w_index_1] = 1
+            link_mask_shift[3][h_index1, w_index_1] = 1
+            link_mask_shift[4][h_index_1, w_index_1] = 1
+            link_mask_shift[5][h_index_1, w_index] = 1
+            link_mask_shift[6][h_index_1, w_index1] = 1
+            link_mask_shift[7][h_index, w_index1] = 1
+
+            for i in range(link_mask_size[0]):
+                # +0 to convert bool array to int array
+                link_mask[i] += np.logical_and(link_mask_tmp[i], link_mask_shift[i]).astype(np.uint8)
+        return torch.LongTensor(pixel_mask), torch.Tensor(pixel_weight), torch.LongTensor(link_mask)
 
     @staticmethod
-    def label_to_link_weight():
+    def calc_pixel_weight_and_link_weight(true_pixel_mask, predict_pixel_mask, pixel_pos_weight):
         pass
 
 if __name__ == '__main__':
@@ -233,19 +230,28 @@ if __name__ == '__main__':
     print("time to read datasets: " + str(end - start)) # about 0.12s
 
     start = time.time()
-    for i in range(1000):
+    for i in range(1):
         sample = dataset.__getitem__(i)
     end = time.time()
     print("time to get 1000 items: " + str(end - start)) # about 34s
 
-    sample['image'].save("transform.jpg", "JPEG")
-    i = 0
-    for box in sample['label']:
-        a_x = (int)((box[0] + box[2]) / 2)
-        b_x = (int)((box[4] + box[6]) / 2)
-        a_y = (int)((box[1] + box[7]) / 2)
-        b_y = (int)((box[3] + box[5]) / 2)
-
-        image = sample['image'].crop((a_y, a_x, b_y, b_x))
-        image.save(str(i) + ".jpg", "JPEG")
-        i += 1
+    sample = dataset.__getitem__(i)
+    pixel_mask = sample['pixel_pos_weight']
+    link_mask = sample['link_mask']
+    image = sample['image'].data.numpy() * 255
+    image = np.transpose(image, (1, 2, 0))
+    image = np.ascontiguousarray(image)
+    shape = image.shape
+    image = image.reshape([int(shape[0]/2), 2, int(shape[1]/2), 2, shape[2]])
+    image = image.max(axis=(1, 3))
+    cv2.imwrite("trans0.jpg", image)
+    pixel_mask = pixel_mask.unsqueeze(2).expand(-1, -1, 3)
+    pixel_mask = pixel_mask.numpy()
+    # import IPython 
+    # IPython.embed()
+    # link_mask = link_mask.unsqueeze(3).expand(-1, -1, -1, 3)
+    # link_mask = link_mask.numpy()
+    image = image * pixel_mask
+    # label = sample['label'].reshape([-1, 4, 2])
+    # cv2.drawContours(image, label, -1, (255, 255, 0))
+    cv2.imwrite("trans1.jpg", image)
