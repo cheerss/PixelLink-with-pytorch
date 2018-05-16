@@ -13,7 +13,7 @@ from torch.utils.data.sampler import RandomSampler
 
 def main():
     dataset = datasets.PixelLinkIC15Dataset(config.train_images_dir, config.train_labels_dir)
-    dataloader = DataLoader(dataset, batch_size=2, shuffle=True)
+    dataloader = DataLoader(dataset, batch_size=2, shuffle=False)
     my_net = net.Net()
 
     if config.gpu:

@@ -190,11 +190,12 @@ class PixelLinkIC15Dataset(ICDAR15Dataset):
             cv2.drawContours(pixel_weight_tmp, [label[i]], -1, avg_weight_per_box, thickness=-1)
             weight_tmp_nonzero = pixel_weight_tmp.nonzero()
             weight_nonzero = pixel_weight.nonzero()
-            pixel_weight[weight_tmp_nonzero] = 0 # when overlapping, only field without overlapping counts
-            pixel_weight_tmp[weight_nonzero] = 0
+            # pixel_weight[weight_tmp_nonzero] = 0 # when overlapping, only field without overlapping counts
+            # pixel_weight_tmp[weight_nonzero] = 0
             area = np.count_nonzero(pixel_weight_tmp) # area per box
             if area <= 0:
                   print("area label: " + str(label[i]))
+                  print("area:" + str(area))
             pixel_weight_tmp /= area
             pixel_weight += pixel_weight_tmp
 
@@ -239,28 +240,26 @@ if __name__ == '__main__':
     print("time to read datasets: " + str(end - start)) # about 0.12s
 
     start = time.time()
-    for i in range(1):
-        sample = dataset.__getitem__(i)
+    sample = dataset.__getitem__(588)
     end = time.time()
     print("time to get 1000 items: " + str(end - start)) # about 34s
 
-    sample = dataset.__getitem__(i)
-    pixel_mask = sample['pixel_pos_weight']
-    link_mask = sample['link_mask']
+    # pixel_mask = sample['pixel_pos_weight']
+    # link_mask = sample['link_mask']
     image = sample['image'].data.numpy() * 255
     image = np.transpose(image, (1, 2, 0))
     image = np.ascontiguousarray(image)
-    shape = image.shape
-    image = image.reshape([int(shape[0]/2), 2, int(shape[1]/2), 2, shape[2]])
-    image = image.max(axis=(1, 3))
-    cv2.imwrite("trans0.jpg", image)
-    pixel_mask = pixel_mask.unsqueeze(2).expand(-1, -1, 3)
-    pixel_mask = pixel_mask.numpy()
+    # shape = image.shape
+    # image = image.reshape([int(shape[0]/2), 2, int(shape[1]/2), 2, shape[2]])
+    # image = image.max(axis=(1, 3))
+    # cv2.imwrite("trans0.jpg", image)
+    # pixel_mask = pixel_mask.unsqueeze(2).expand(-1, -1, 3)
+    # pixel_mask = pixel_mask.numpy()
     # import IPython 
     # IPython.embed()
     # link_mask = link_mask.unsqueeze(3).expand(-1, -1, -1, 3)
     # link_mask = link_mask.numpy()
-    image = image * pixel_mask
-    # label = sample['label'].reshape([-1, 4, 2])
-    # cv2.drawContours(image, label, -1, (255, 255, 0))
+    # image = image * pixel_mask
+    label = sample['label'].reshape([-1, 4, 2])
+    cv2.drawContours(image, label, -1, (255, 255, 0))
     cv2.imwrite("trans1.jpg", image)
