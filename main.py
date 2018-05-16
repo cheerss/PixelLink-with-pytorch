@@ -44,5 +44,8 @@ def main():
             losses.backward()
             optimizer.step()
 
+            if (i_batch + 1) % 200 == 0:
+                torch.save(my_net.state_dict(), config.saving_model_dir + str(i) + "_" + str(i_batch) + ".mdl")
+
 if __name__ == "__main__":
     main()

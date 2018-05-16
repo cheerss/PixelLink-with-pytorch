@@ -13,15 +13,23 @@ from torchvision import transforms
 
 class ICDAR15Dataset(Dataset):
     def __init__(self, images_dir, labels_dir):
-        self.all_images = self.read_datasets(images_dir, config.all_trains)
+        # self.all_images = self.read_datasets(images_dir, config.all_trains)
+        self.images_dir = images_dir
+        self.labels_dir = labels_dir
         self.all_labels = self.read_labels(labels_dir, config.all_trains)
 
     def __len__(self):
-        return len(self.all_images)
+        return len(self.all_labels)
 
     def __getitem__(self, index):
         if isinstance(index, int):
-            return {'image': self.all_images[index], 'label': all_labels[index]}
+            return {'image': self.read_image(self.images_dir, index), 'label': all_labels[index]}
+
+    def read_image(self, dir, index):
+        index += 1
+        image = Image.open(dir + "img_" + str(index) + ".jpg")
+        image.load()
+        return image
 
     def read_datasets(self, dir, num):
         res = []
@@ -60,7 +68,8 @@ class PixelLinkIC15Dataset(ICDAR15Dataset):
 
     def data_transform(self, index):
         while True:
-            image = self.all_images[index]
+            # image = self.all_images[index]
+            image = self.read_image(self.images_dir, index)
             label = self.all_labels[index]
             rotate_rand = random.randint(0, 3)
             origin_h = image.size[1]
