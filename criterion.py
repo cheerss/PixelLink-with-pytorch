@@ -44,6 +44,7 @@ class PixelLinkLoss(object):
         sum_neg_link_weight = torch.sum(self.neg_link_weight.view(batch_size, -1), dim=1)
         self.link_cross_entropy = self.pos_link_weight.new_empty(self.pos_link_weight.size())
         for i in range(neighbors):
+            assert input.size(1) == 16
             this_input = input[:, [2*i, 2*i+1]]
             this_target = target[:, i].squeeze(1)
             self.link_cross_entropy[:, i] = self.link_cross_entropy_layer(this_input, this_target)

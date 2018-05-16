@@ -201,8 +201,8 @@ class PixelLinkIC15Dataset(ICDAR15Dataset):
             # link mask
             weight_tmp_nonzero = pixel_weight_tmp.nonzero()
             link_mask_tmp = np.zeros(link_mask_size, dtype=np.uint8)
-            for i in range(link_mask_size[0]): # neighbors directions
-                link_mask_tmp[i][weight_tmp_nonzero] = 1
+            for j in range(link_mask_size[0]): # neighbors directions
+                link_mask_tmp[j][weight_tmp_nonzero] = 1
             link_mask_shift = np.zeros(link_mask_size, dtype=np.uint8)
             w_index = weight_tmp_nonzero[1]
             w_index1 = w_index + 1
@@ -223,9 +223,9 @@ class PixelLinkIC15Dataset(ICDAR15Dataset):
             link_mask_shift[6][h_index_1, w_index1] = 1
             link_mask_shift[7][h_index, w_index1] = 1
 
-            for i in range(link_mask_size[0]):
+            for j in range(link_mask_size[0]):
                 # +0 to convert bool array to int array
-                link_mask[i] += np.logical_and(link_mask_tmp[i], link_mask_shift[i]).astype(np.uint8)
+                link_mask[j] += np.logical_and(link_mask_tmp[j], link_mask_shift[j]).astype(np.uint8)
         return torch.LongTensor(pixel_mask), torch.Tensor(pixel_weight), torch.LongTensor(link_mask)
 
     @staticmethod
