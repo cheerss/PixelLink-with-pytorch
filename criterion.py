@@ -37,17 +37,23 @@ class PixelLinkLoss(object):
     def link_loss(self, input, target, neighbors=8):
         batch_size = input.size(0)
         self.pos_link_weight = (target == 1).to(torch.float) * \
-            self.pixel_weight.unsqueeze(1).expand(-1,neighbors,-1,-1)
+            self.pixel_weight.unsqueeze(1).expand(-1, neighbors, -1, -1)
         self.neg_link_weight = (target == 0).to(torch.float) * \
-            self.pixel_weight.unsqueeze(1).expand(-1,neighbors,-1,-1)
+            self.pixel_weight.unsqueeze(1).expand(-1, neighbors, -1 ,-1)
         sum_pos_link_weight = torch.sum(self.pos_link_weight.view(batch_size, -1), dim=1)
         sum_neg_link_weight = torch.sum(self.neg_link_weight.view(batch_size, -1), dim=1)
         self.link_cross_entropy = self.pos_link_weight.new_empty(self.pos_link_weight.size())
         for i in range(neighbors):
             assert input.size(1) == 16
-            this_input = input[:, [2*i, 2*i+1]]
+            # input = input.contiguous()
+            this_input = input[:, [2 * i, 2 * i + 1]]
             this_target = target[:, i].squeeze(1)
-            self.link_cross_entropy[:, i] = self.link_cross_entropy_layer(this_input, this_target)
+            # this_target = this_target.contiguous()
+            # assert this_input.is_contiguous()
+            # assert this_target.is_contiguous()
+            # print(this_target)
+            # print(torch.sum(this_target>=2))
+            self.link_cross_entropy[:, i] = torch.nn.functional.cross_entropy(this_input, this_target, reduce=False)
         loss_link_pos = self.pos_link_weight.new_empty(self.pos_link_weight.size())
         loss_link_neg = self.neg_link_weight.new_empty(self.neg_link_weight.size())
         for i in range(batch_size):

@@ -71,7 +71,8 @@ class PixelLinkIC15Dataset(ICDAR15Dataset):
             # image = self.all_images[index]
             image = self.read_image(self.images_dir, index)
             label = self.all_labels[index]
-            rotate_rand = random.randint(0, 3)
+            # rotate_rand = random.randint(0, 3)
+            rotate_rand = 0
             origin_h = image.size[1]
             origin_w = image.size[0]
             # rotate
@@ -190,17 +191,19 @@ class PixelLinkIC15Dataset(ICDAR15Dataset):
             cv2.drawContours(pixel_weight_tmp, [label[i]], -1, avg_weight_per_box, thickness=-1)
             weight_tmp_nonzero = pixel_weight_tmp.nonzero()
             weight_nonzero = pixel_weight.nonzero()
-            # pixel_weight[weight_tmp_nonzero] = 0 # when overlapping, only field without overlapping counts
-            # pixel_weight_tmp[weight_nonzero] = 0
+            pixel_weight[weight_tmp_nonzero] = 0 # when overlapping, only field without overlapping counts
+            pixel_weight_tmp[weight_nonzero] = 0
             area = np.count_nonzero(pixel_weight_tmp) # area per box
             if area <= 0:
                   print("area label: " + str(label[i]))
                   print("area:" + str(area))
+                  continue
             pixel_weight_tmp /= area
+            # print(pixel_weight_tmp[pixel_weight_tmp>0])
             pixel_weight += pixel_weight_tmp
 
             # link mask
-            weight_tmp_nonzero = pixel_weight_tmp.nonzero()
+            # weight_tmp_nonzero = pixel_weight_tmp.nonzero()
             link_mask_tmp = np.zeros(link_mask_size, dtype=np.uint8)
             for j in range(link_mask_size[0]): # neighbors directions
                 link_mask_tmp[j][weight_tmp_nonzero] = 1
@@ -223,10 +226,36 @@ class PixelLinkIC15Dataset(ICDAR15Dataset):
             link_mask_shift[5][h_index_1, w_index] = 1
             link_mask_shift[6][h_index_1, w_index1] = 1
             link_mask_shift[7][h_index, w_index1] = 1
+            if i == label.shape[0] - 1:
+                for row in (pixel_weight>0).astype(np.uint8):
+                    num = 0
+                    for pixel in row:
+                        print(pixel, end="")
+                        num += 1
+                        if num >= 200:
+                            break
+                    print("")
+                print("-----")
 
             for j in range(link_mask_size[0]):
                 # +0 to convert bool array to int array
-                link_mask[j] += np.logical_and(link_mask_tmp[j], link_mask_shift[j]).astype(np.uint8)
+                link_mask_tmp[j] = np.logical_and(link_mask_tmp[j], link_mask_shift[j]).astype(np.uint8)
+                link_mask_nonzero = link_mask[j].nonzero()
+                link_mask_tmp_nonzero = link_mask_tmp[j].nonzero()
+                link_mask_tmp[j][link_mask_nonzero] = 0
+                link_mask[j][link_mask_tmp_nonzero] = 0
+                link_mask[j] += link_mask_tmp[j]
+                # print("%d %d" % (i,j))
+                if i == label.shape[0] - 1 and j == 1:
+                    for row in link_mask[j]:
+                        num = 0
+                        for pixel in row:
+                            print(pixel, end="")
+                            num += 1
+                            if num >= 200:
+                                break
+                        print("")
+        # link_mask[link_mask > 1] = 1
         return torch.LongTensor(pixel_mask), torch.Tensor(pixel_weight), torch.LongTensor(link_mask)
 
     @staticmethod
