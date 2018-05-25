@@ -61,6 +61,7 @@ class PixelLinkIC15Dataset(ICDAR15Dataset):
     def __getitem__(self, index):
         image, label = self.data_transform(index)
         image = transforms.ToTensor()(image)
+        # image = image * 255
         pixel_mask, pixel_pos_weight, link_mask = \
             PixelLinkIC15Dataset.label_to_mask_and_pixel_pos_weight(label, list(image.shape[1:]))
         return {'image': image, 'pixel_mask': pixel_mask,
@@ -182,9 +183,23 @@ class PixelLinkIC15Dataset(ICDAR15Dataset):
             # return torch.LongTensor(pixel_mask), torch.Tensor(pixel_weight), torch.LongTensor(link_mask)
         label = (label / factor).astype(int) # label's coordinate value should be divided
 
-        cv2.drawContours(pixel_mask, label, -1, 1, thickness=-1)
+        # cv2.drawContours(pixel_mask, label, -1, 1, thickness=-1)
+        real_box_num = 0
+        # area_per_box = []
+        for i in range(label.shape[0]):
+            pixel_mask_tmp = np.zeros(pixel_mask_size, dtype=np.uint8)
+            cv2.drawContours(pixel_mask_tmp, [label[i]], -1, 1, thickness=-1)
+            pixel_mask_tmp_nonzero = pixel_mask_tmp.nonzero()
+            pixel_mask_nonzero = pixel_mask.nonzero()
+            pixel_mask[pixel_mask_tmp_nonzero] = 0
+            pixel_mask_tmp[pixel_mask_nonzero] = 0
+            # area = np.count_nonzero(pixel_mask_tmp)
+            # area_per_box.append(area)
+            if pixel_mask_tmp.any(): # not all pixels are ignored
+                real_box_num += 1
+                pixel_mask += pixel_mask_tmp
         pixel_mask_area = np.count_nonzero(pixel_mask) # total area
-        avg_weight_per_box = pixel_mask_area / label.shape[0]
+        avg_weight_per_box = pixel_mask_area / real_box_num
 
         for i in range(label.shape[0]): # num of box
             pixel_weight_tmp = np.zeros(pixel_mask_size, dtype=np.float)
@@ -202,60 +217,31 @@ class PixelLinkIC15Dataset(ICDAR15Dataset):
             # print(pixel_weight_tmp[pixel_weight_tmp>0])
             pixel_weight += pixel_weight_tmp
 
-            # link mask
-            # weight_tmp_nonzero = pixel_weight_tmp.nonzero()
-            link_mask_tmp = np.zeros(link_mask_size, dtype=np.uint8)
-            for j in range(link_mask_size[0]): # neighbors directions
-                link_mask_tmp[j][weight_tmp_nonzero] = 1
-            link_mask_shift = np.zeros(link_mask_size, dtype=np.uint8)
-            w_index = weight_tmp_nonzero[1]
-            w_index1 = w_index + 1
-            w_index1[w_index1 >= link_mask_size[1]] = link_mask_size[1] - 1
-            w_index_1 = w_index - 1
-            w_index_1[w_index_1 < 0] = 0
-            h_index = weight_tmp_nonzero[0]
-            h_index1 = h_index + 1
-            h_index1[h_index1 >= link_mask_size[2]] = link_mask_size[2] - 1
-            h_index_1 = h_index - 1
-            h_index_1[h_index_1 < 0] = 0
-            link_mask_shift[0][h_index1, w_index1] = 1
-            link_mask_shift[1][h_index1, w_index] = 1
-            link_mask_shift[2][h_index1, w_index_1] = 1
-            link_mask_shift[3][h_index1, w_index_1] = 1
-            link_mask_shift[4][h_index_1, w_index_1] = 1
-            link_mask_shift[5][h_index_1, w_index] = 1
-            link_mask_shift[6][h_index_1, w_index1] = 1
-            link_mask_shift[7][h_index, w_index1] = 1
-            if i == label.shape[0] - 1:
-                for row in (pixel_weight>0).astype(np.uint8):
-                    num = 0
-                    for pixel in row:
-                        print(pixel, end="")
-                        num += 1
-                        if num >= 200:
-                            break
-                    print("")
-                print("-----")
+        # link mask
+        # weight_tmp_nonzero = pixel_weight_tmp.nonzero()
+        pixel_weight_nonzero = pixel_weight.nonzero()
+        link_mask_tmp = np.zeros(link_mask_size, dtype=np.uint8)
+        for j in range(link_mask_size[0]): # neighbors directions
+            link_mask_tmp[j][pixel_weight_nonzero] = 1
+        link_mask_shift = np.zeros(link_mask_size, dtype=np.uint8)
+        w_index = pixel_weight_nonzero[1]
+        h_index = pixel_weight_nonzero[0]
+        w_index1 = np.clip(w_index + 1, a_min=None, a_max=link_mask_size[1] - 1)
+        w_index_1 = np.clip(w_index - 1, a_min=0, a_max=None)
+        h_index1 = np.clip(h_index + 1, a_min=None, a_max=link_mask_size[2] - 1)
+        h_index_1 = np.clip(h_index - 1, a_min=0, a_max=None)
+        link_mask_shift[0][h_index1, w_index1] = 1
+        link_mask_shift[1][h_index1, w_index] = 1
+        link_mask_shift[2][h_index1, w_index_1] = 1
+        link_mask_shift[3][h_index1, w_index_1] = 1
+        link_mask_shift[4][h_index_1, w_index_1] = 1
+        link_mask_shift[5][h_index_1, w_index] = 1
+        link_mask_shift[6][h_index_1, w_index1] = 1
+        link_mask_shift[7][h_index, w_index1] = 1
 
-            for j in range(link_mask_size[0]):
-                # +0 to convert bool array to int array
-                link_mask_tmp[j] = np.logical_and(link_mask_tmp[j], link_mask_shift[j]).astype(np.uint8)
-                link_mask_nonzero = link_mask[j].nonzero()
-                link_mask_tmp_nonzero = link_mask_tmp[j].nonzero()
-                link_mask_tmp[j][link_mask_nonzero] = 0
-                link_mask[j][link_mask_tmp_nonzero] = 0
-                link_mask[j] += link_mask_tmp[j]
-                # print("%d %d" % (i,j))
-                if i == label.shape[0] - 1 and j == 1:
-                    for row in link_mask[j]:
-                        num = 0
-                        for pixel in row:
-                            print(pixel, end="")
-                            num += 1
-                            if num >= 200:
-                                break
-                        print("")
-        # link_mask[link_mask > 1] = 1
+        for j in range(link_mask_size[0]):
+            # +0 to convert bool array to int array
+            link_mask[j] = np.logical_and(link_mask_tmp[j], link_mask_shift[j]).astype(np.uint8)
         return torch.LongTensor(pixel_mask), torch.Tensor(pixel_weight), torch.LongTensor(link_mask)
 
     @staticmethod

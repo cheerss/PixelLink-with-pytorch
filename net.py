@@ -21,7 +21,7 @@ class Net(nn.Module):
         self.conv5_1 = nn.Conv2d(512, 512, 3, stride=1, padding=1)
         self.conv5_2 = nn.Conv2d(512, 512, 3, stride=1, padding=1)
         self.conv5_3 = nn.Conv2d(512, 512, 3, stride=1, padding=1)
-        self.pool5 = nn.MaxPool2d(1)
+        self.pool5 = nn.MaxPool2d(kernel_size=[3, 3], stride=1, padding=1)
         self.conv6 = nn.Conv2d(512, 1024, 3, stride=1, padding=1)
         self.conv7 = nn.Conv2d(1024, 1024, 1, stride=1, padding=0)
 

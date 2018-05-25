@@ -8,6 +8,8 @@ class PixelLinkLoss(object):
         self.link_cross_entropy_layer = nn.CrossEntropyLoss(reduce=False)
         self.pixel_cross_entropy = None
         self.link_cross_entropy = None
+        self.pos_pixel_weight = None
+        self.neg_pixel_weight = None
         self.pixel_weight = None
         self.pos_link_weight = None
         self.neg_link_weight = None
@@ -20,16 +22,17 @@ class PixelLinkLoss(object):
         int_area = self.area.to(torch.int).data.tolist()
         self.area = self.area.to(torch.float)
         # input[0] is for negative
+        self.pos_pixel_weight = pos_weight
+        self.neg_pixel_weight = torch.zeros_like(self.pos_pixel_weight)
         for i in range(batch_size):
             wrong_input = input[i, 0][target[i]==0].view(-1)
             # print("k: " + str(int_area[i] * config.neg_pos_ratio))
             neg_area = min(int_area[i] * config.neg_pos_ratio, wrong_input.size(0))
             topk, _ = torch.topk(wrong_input, neg_area)
-            self.pixel_weight = pos_weight
-            self.pixel_weight[i][input[i, 0] > topk[-1]] = 1
+            self.neg_pixel_weight[i][input[i, 0] > topk[-1]] = 1
+        self.pixel_weight = self.pos_pixel_weight + self.neg_pixel_weight
         weighted_pixel_cross_entropy = self.pixel_weight * self.pixel_cross_entropy
         weighted_pixel_cross_entropy = weighted_pixel_cross_entropy.view(batch_size, -1)
-
         # import IPython
         # IPython.embed()
         return torch.mean(torch.sum(weighted_pixel_cross_entropy, dim=1) / ((1 + config.neg_pos_ratio) * self.area))
@@ -53,7 +56,7 @@ class PixelLinkLoss(object):
             # assert this_target.is_contiguous()
             # print(this_target)
             # print(torch.sum(this_target>=2))
-            self.link_cross_entropy[:, i] = torch.nn.functional.cross_entropy(this_input, this_target, reduce=False)
+            self.link_cross_entropy[:, i] = self.link_cross_entropy_layer(this_input, this_target)
         loss_link_pos = self.pos_link_weight.new_empty(self.pos_link_weight.size())
         loss_link_neg = self.neg_link_weight.new_empty(self.neg_link_weight.size())
         for i in range(batch_size):
