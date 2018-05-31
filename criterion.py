@@ -20,12 +20,10 @@ class PixelLinkLoss(object):
         self.area = None
         self.neg_area = None
 
-    def pixel_loss(self, input, target, neg_pixel_masks, pos_weight, stop):
+    def pixel_loss(self, input, target, neg_pixel_masks, pos_weight):
         batch_size = input.size(0)
         softmax_input = self.softmax_layer(input)
-        if stop:
-            import IPython
-            IPython.embed()
+
         self.pixel_cross_entropy = self.pixel_cross_entropy_layer(input, target)
         self.area = torch.sum(target.view(batch_size, -1), dim=1)
         int_area = self.area.to(torch.int).data.tolist()
