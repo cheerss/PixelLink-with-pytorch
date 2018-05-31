@@ -10,7 +10,7 @@ PixelLink-with-pytorch
 - numpy-1.14.3
 - Pillow-5.5.0
 
-They could all be installed through pip except pytorch and torchvision. As for pytorch and torchvision, they both depends on your CUDA version, you would prefer to reading [pytorch's official size](https://pytorch.org/)
+They could all be installed through pip except pytorch and torchvision. As for pytorch and torchvision, they both depends on your CUDA version, you would prefer to reading [pytorch's official site](https://pytorch.org/)
 
 ## Structure
 All main source code is in the root directory of the project. 
@@ -26,8 +26,16 @@ All main source code is in the root directory of the project.
 ## Train
 ### Before starting
 You could modify training parameters in ${project_root}/config.py
+You need to download the dataset [here](http://rrc.cvc.uab.es/?ch=4&com=tasks) and unzip it as ${project_root}/train_images/images and ${project_root}/train_images/ground_truth
+`python main.py --train 1`
+
+## Retrain
+Be sure there is a pretrained model in the ${project_root}/models directory
+`python main.py --train 1 --retrain 1`
 
 ## Test
+Be sure there is a pretrained model in the ${project_root}/models directory
+`python main.py`
 
 ## Noted
 
