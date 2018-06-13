@@ -131,12 +131,10 @@ def train(epoch, iteration, dataloader, my_net, optimizer, optimizer2, device):
                 optimizer.zero_grad()
                 losses.backward()
                 optimizer.step()
-                optimizer.zero_grad()
             else:
                 optimizer2.zero_grad()
                 losses.backward()
                 optimizer2.step()
-                optimizer2.zero_grad()
             end = time.time()
             print("time: " + str(end - start))
             if (iteration + 1) % 200 == 0:

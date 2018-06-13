@@ -155,6 +155,24 @@ class PixelLinkIC15Dataset(ICDAR15Dataset):
         labels["ignore"] = list(map(lambda a, b: a or b, labels["ignore"], ignore))
         return labels
 
+
+    @staticmethod
+    def label_to_mask_and_pixel_pos_weight2(label, img_size, version="2s", neighbors=8):
+        """
+        8 neighbors:
+            0 1 2
+            7 - 3
+            6 5 4
+        """
+        factor = 2 if version == "2s" else 4
+        label_coor = np.array(label["coor"]).reshape([-1, 1, 4, 2])
+        pixel_mask_size = [int(i / factor) for i in img_size]
+        link_mask_size = [neighbors, ] + pixel_mask_size
+        pixel_mask = np.zeros(pixel_mask_size, dtype=np.uint8)
+        pixel_weight = np.zeros(pixel_mask_size, dtype=np.float)
+        link_mask = np.zeros(link_mask_size, dtype=np.uint8)
+
+
     @staticmethod
     def label_to_mask_and_pixel_pos_weight(label, img_size, version="2s", neighbors=8):
         """

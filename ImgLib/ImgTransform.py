@@ -2,6 +2,7 @@ from PIL import Image
 import numpy as np
 import random
 import math
+import copy
 
 def ReadImage(filename, output_format="numpy", order="HWC", color_format="RGB"):
     """
@@ -85,6 +86,7 @@ def RotateImageWithLabel(labels, filename=None, data=None, angle=None, return_ty
 
     return: labels, numpy array, rotate_angle
     """
+    labels = copy.deepcopy(labels)
     img = _ParseImage(filename, data)
     origin_w, origin_h = img.size
     img, angle = RotateImage(filename=filename, data=data, angle=angle, return_type=return_type)
@@ -142,6 +144,7 @@ def CropImageWithLabel(labels, filename=None, data=None, start=None, end=None, s
     """
     return: labels, img, img_range
     """
+    labels = copy.deepcopy(labels)
     img, img_range = CropImage(filename=filename, data=data, start=start, end=end, \
         scale=scale, ratio=ratio, return_type=return_type)
 
@@ -174,6 +177,7 @@ def ResizeImageWithLabel(labels, size, filename=None, data=None, return_type="nu
     """
     
     """
+    labels = copy.deepcopy(labels)
     origin_img = _ParseImage(filename, data)
     w, h = origin_img.size
     img, size = ResizeImage(size, filename=filename, data=data, return_type=return_type)
@@ -205,9 +209,3 @@ def UnzeroMeanImage(img, r_mean, g_mean, b_mean):
     img[..., 1] += g_mean
     img[..., 2] += b_mean
     return img
-
-
-
-
-
-
