@@ -20,7 +20,7 @@ def read_datasets(dir, num, order="chw"):
     if order == "chw":
         # channel, height, width
         res = res.transpose(0, 3, 1, 2)
-    print(res[0].shape)
+    # print(res[0].shape)
     return res
 
 def read_ground_truth(dir, num):

@@ -8,8 +8,10 @@ import math
 import copy
 import time
 import cv2
+import os
 import numpy as np
 from torchvision import transforms
+import ImgLib.ImgTransform as ImgTransform
 
 class ICDAR15Dataset(Dataset):
     def __init__(self, images_dir, labels_dir):
@@ -27,8 +29,8 @@ class ICDAR15Dataset(Dataset):
 
     def read_image(self, dir, index):
         index += 1
-        image = Image.open(dir + "img_" + str(index) + ".jpg")
-        image.load()
+        filename = os.path.join(dir, "img_" + str(index) + ".jpg")
+        image = ImgTransform.ReadImage(filename)
         return image
 
     def read_datasets(self, dir, num):
@@ -46,15 +48,26 @@ class ICDAR15Dataset(Dataset):
         for i in range(1, num+1):
             # utf-8_sig for bom_utf-8
             # print("read %d" % i)
+
             with codecs.open(dir + "gt_img_" + str(i) + ".txt", encoding="utf-8_sig") as file:
                 data = file.readlines()
-                tmp = []
+                tmp = {}
+                tmp["coor"] = []
+                tmp["content"] = []
+                tmp["ignore"] = []
+                tmp["area"] = []
                 for line in data:
                     content = line.split(",")
-                    # if(content[8] == "###\r\n"):
-                    #     # print("ignore")
-                    #     continue
-                    tmp.append([int(n) for n in content[:8]])
+                    coor = [int(n) for n in content[:8]]
+                    tmp["coor"].append(coor)
+                    content[8] = content[8].strip("\r\n")
+                    tmp["content"].append(content[8])
+                    if content[8] == "###":
+                        tmp["ignore"].append(True)
+                    else:
+                        tmp["ignore"].append(False)
+                    coor = np.array(coor).reshape([4,2])
+                    tmp["area"].append(cv2.contourArea(coor))
                 res[i-1] = tmp
         return res
 
@@ -67,14 +80,11 @@ class PixelLinkIC15Dataset(ICDAR15Dataset):
     def __getitem__(self, index):
         # print(index, end=" ")
         if self.train:
-            image, label = self.data_transform(index)
+            image, label = self.train_data_transform(index)
         else:
-            image, label = self.resize(index)
-        image = transforms.ToTensor()(image)
-        image = image * 255
-        image[0] -= config.r_mean
-        image[1] -= config.g_mean
-        image[2] -= config.b_mean
+            image, label = self.test_data_transform(index)
+        image = torch.tensor(imge)
+
         pixel_mask, neg_pixel_mask, pixel_pos_weight, link_mask = \
             PixelLinkIC15Dataset.label_to_mask_and_pixel_pos_weight(label, list(image.shape[1:]), version=config.version)
         return {'image': image, 'pixel_mask': pixel_mask, 'neg_pixel_mask': neg_pixel_mask,
@@ -103,98 +113,67 @@ class PixelLinkIC15Dataset(ICDAR15Dataset):
 
         return image, new_label
 
+    def test_data_transform(self, index):
+        img = self.read_image(self.images_dir, index)
+        labels = self.all_labels[index]
+        labels, img, size = ImgTransform.ResizeImageWithLabel(labels, (512, 512), data=img)
+        img = ImgTransform.ZeroMeanImage(img, config.r_mean, config.g_mean, config.b_mean)
+        return img, labels
 
-    def data_transform(self, index):
-        # while True:
-        # image = self.all_images[index]
-        image = self.read_image(self.images_dir, index)
-        label = self.all_labels[index]
-        rotate_rand = random.randint(0, 3)
-        # rotate_rand = 0
-        origin_h = image.size[1]
-        origin_w = image.size[0]
+    def train_data_transform(self, index):
+        img = self.read_image(self.images_dir, index)
+        labels = self.all_labels[index]
+
+        rotate_rand = random.random()
+        crop_rand = random.random()
         # rotate
-        image = image.rotate(90 * rotate_rand, expand=True) # counter clockwise
-        # image.save("rotate.jpg", "JPEG")
-        aspect_ratio_rand = 0.5 + random.random() * 1.5
-        # print("rotate " + str(90 * rotate_rand) + " degrees")
-
-        # print(image.size)
-        h = image.size[1]
-        w = image.size[0]
-        # print("original size(h, w): (" + str(h) + " " + str(w) + ")")
-        area = h * w
-        for attempt in range(10):
-            scale_rand = 0.1 + random.random() * 0.9
-            new_area = area * scale_rand
-            new_h = int(round(math.sqrt(new_area / aspect_ratio_rand)))
-            new_w = int(round(math.sqrt(new_area * aspect_ratio_rand)))
-            if new_h < h and new_w < w:
-                new_h_start = random.randint(0, h - new_h)
-                new_w_start = random.randint(0, w - new_w)
-                break
-        else:
-            new_w = min(h, w)
-            new_h = new_w
-            new_h_start = (h - new_h) // 2
-            new_w_start = (w - new_w) // 2
-        # print("size after crop should be (h, w): (" + str(new_h) + " " + str(new_w) + ")")
-        # print("start after crop(h, w): (" + str(new_h_start) + " " + str(new_w_start) + ")")
-
+        if rotate_rand > 0.5:
+            labels, img, angle = ImgTransform.RotateImageWithLabel(labels, data=img)
         # crop
-        image = image.crop((new_w_start, new_h_start, new_w_start + new_w, new_h_start + new_h))
-        # print("size after crop(h, w): (" + str(image.size[1]) + " " + str(image.size[0]) + ")")
-        # image.save("crop.jpg", "JPEG")
+        if crop_rand > 0.5:
+            scale = 0.1 + random.random() * 0.9
+            labels, img, img_range = ImgTransform.CropImageWithLabel(labels, data=img, scale=scale)
+            labels = filter_labels(labels, method="rai")
         # resize
-        image = image.resize((512, 512), resample=Image.BILINEAR)
-        # image.save("resize.jpg", "JPEG")
-        # print("size after resize(h, w): (" + str(image.size[1]) + " " + str(image.size[0]) + ")")
+        labels, img, size = ImgTransform.ResizeImageWithLabel(labels, (512, 512), data=img)
+        # filter unsatifactory labels
+        labels = filter_labels(labels, method="msi")
+        # zero mean
+        img = ImgTransform.ZeroMeanImage(img, config.r_mean, config.g_mean, config.b_mean)
+        return img, labels
 
-        new_label = copy.deepcopy(label)
-        new_label = np.array(new_label)
-        new_label = new_label.reshape([-1, 4, 2])
-        # ground truth file: x along width, y along height, ours: x along height, y along width
-        # new_label[:, :, [0, 1]] = new_label[:, :, [1, 0]]
-        # print("origin new label: " + str(new_label))
-        box_areas = []
-        for i in range(new_label.shape[0]):
-            box_areas.append(cv2.contourArea(new_label[i]))
+    @staticmethod
+    def filter_labels(labels, method):
+        """
+        method: "msi" for min area ignore, "rai" for remain area ignore
+        """
+        def distance(a, b):
+            return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
+        def min_side_ignore(label):
+            label = np.array(label).reshape(4, 2)
+            dists = []
+            for i in range(4):
+                dists.append(distance(label[i], label[(i+1)%4]))
+            if min(dists) < 10:
+                return True # ignore it
+            else:
+                return False
 
-        # label rotate counter clockwise
-        for i in range(rotate_rand):
-            new_label[:, :, 0] = origin_w - 1 - new_label[:, :, 0]
-            new_label[:, :, [0, 1]] = new_label[:, :, [1, 0]]
-            origin_h, origin_w = origin_w, origin_h
-
-        # label crop
-        new_label[:, :, 1] -= new_h_start
-        new_label[:, :, 0] -= new_w_start
-        new_label[new_label < 0] = 0
-        new_label[:, :, 1][new_label[:, :, 1] >= new_h] = new_h - 1
-        new_label[:, :, 0][new_label[:, :, 0] >= new_w] = new_w - 1
-
-        # label resize
-        new_label[:, :, 1] = new_label[:, :, 1] * 512 / new_h
-        new_label[:, :, 0] = new_label[:, :, 0] * 512 / new_w
-        new_label = new_label.astype(int)
-
-        # delete the boxes which unsatisfy the conditions
-        delete_index = []
-        for i in range(new_label.shape[0]):
-            box = new_label[i]
-            # min_side = min(box[3] - box[1], box[6] - box[0])
-
-            # if min_side < 10:
-            #     delete_index.append(i)
-            #     continue
-            new_box_area = cv2.contourArea(box)
-            if new_box_area / box_areas[i] < 0.2:
-                delete_index.append(i)
-        new_label = np.delete(new_label, delete_index, 0)
-        # if new_label.shape[0] > 0:
-        #     break
-        # assert (new_label >= 0).all()
-        return image, new_label
+        def remain_area_ignore(label, origin_area):
+            label = np.array(label).reshape(4, 2)
+            area = cv2.contourArea(label)
+            if area / origin_area < 0.2:
+                return True
+            else:
+                return False
+        if method == "msi":
+            ignore = list(map(min_side_ignore, labels["coor"]))
+        elif method == "rai":
+            ignore = list(map(min_side_ignore, labels["coor"], labels["area"]))
+        else:
+            ignore = [False] * 8
+        labels["ignore"] = list(map(lambda a, b: a or b, labels["ignore"], ignore))
+        return labels
 
     @staticmethod
     def label_to_mask_and_pixel_pos_weight(label, img_size, version="2s", neighbors=8):
@@ -206,7 +185,7 @@ class PixelLinkIC15Dataset(ICDAR15Dataset):
         """
         factor = 2 if version == "2s" else 4
 
-        # label = np.array(label)
+        label = np.array(label)
         label.reshape([-1, 1, 4, 2])
         pixel_mask_size = [int(i / factor) for i in img_size]
         link_mask_size = [neighbors, ] + pixel_mask_size
@@ -279,10 +258,6 @@ class PixelLinkIC15Dataset(ICDAR15Dataset):
                 # +0 to convert bool array to int array
                 link_mask[j] += np.logical_and(link_mask_tmp, link_mask_shift[j]).astype(np.uint8)
         return [torch.LongTensor(pixel_mask), torch.LongTensor(neg_pixel_mask), torch.Tensor(pixel_weight), torch.LongTensor(link_mask)]
-
-    @staticmethod
-    def calc_pixel_weight_and_link_weight(true_pixel_mask, predict_pixel_mask, pixel_pos_weight):
-        pass
 
 if __name__ == '__main__':
     start = time.time()
