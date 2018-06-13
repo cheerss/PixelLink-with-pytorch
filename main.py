@@ -51,7 +51,8 @@ def test_model():
         for i in range(config.batch_size):
         # for i in range(1):
             image = sample['image'][i].data.numpy()
-            label = dataset.get_label(i_batch * config.batch_size + i)
+            # label = sample['label'][i]["coor"]
+            # label = dataset.get_label(i_batch * config.batch_size + i)
             pixel_out = out_1[i]
             link_out = out_2[i]
             image[0] += config.r_mean
@@ -71,7 +72,7 @@ def test_model():
             # print(all_boxes[i])
             all_boxes[i] = np.array(all_boxes[i])
             cv2.drawContours(image, all_boxes[i], -1, (0, 255, 0), thickness=1)
-            cv2.drawContours(image, label, -1, (255, 0, 0), thickness=1)
+            # cv2.drawContours(image, label, -1, (255, 0, 0), thickness=1)
             cv2.imwrite("res" + str(i) + ".jpg", image)
             print(i)
         batch += 1
@@ -130,10 +131,12 @@ def train(epoch, iteration, dataloader, my_net, optimizer, optimizer2, device):
                 optimizer.zero_grad()
                 losses.backward()
                 optimizer.step()
+                optimizer.zero_grad()
             else:
                 optimizer2.zero_grad()
                 losses.backward()
                 optimizer2.step()
+                optimizer2.zero_grad()
             end = time.time()
             print("time: " + str(end - start))
             if (iteration + 1) % 200 == 0:

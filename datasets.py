@@ -83,49 +83,27 @@ class PixelLinkIC15Dataset(ICDAR15Dataset):
             image, label = self.train_data_transform(index)
         else:
             image, label = self.test_data_transform(index)
-        image = torch.tensor(imge)
+        image = torch.Tensor(image)
 
         pixel_mask, neg_pixel_mask, pixel_pos_weight, link_mask = \
-            PixelLinkIC15Dataset.label_to_mask_and_pixel_pos_weight(label, list(image.shape[1:]), version=config.version)
-        return {'image': image, 'pixel_mask': pixel_mask, 'neg_pixel_mask': neg_pixel_mask,
+            PixelLinkIC15Dataset.label_to_mask_and_pixel_pos_weight(label["coor"], list(image.shape[1:]), version=config.version)
+        return {'image': image, 'pixel_mask': pixel_mask, 'neg_pixel_mask': neg_pixel_mask, 'label': label,
                 'pixel_pos_weight': pixel_pos_weight, 'link_mask': link_mask}
-
-    def get_label(self, index):
-        _, label = self.resize(index)
-        return label
-                
-    def resize(self, index):
-        image = self.read_image(self.images_dir, index)
-        label = self.all_labels[index]
-
-        h = image.size[1]
-        w = image.size[0]
-
-        image = image.resize((512, 512), resample=Image.BILINEAR)
-
-        new_label = copy.deepcopy(label)
-        new_label = np.array(new_label)
-        new_label = new_label.reshape([-1, 4, 2])
-
-        new_label[:, :, 1] = new_label[:, :, 1] * 512 / h
-        new_label[:, :, 0] = new_label[:, :, 0] * 512 / w
-        new_label = new_label.astype(int)
-
-        return image, new_label
 
     def test_data_transform(self, index):
         img = self.read_image(self.images_dir, index)
         labels = self.all_labels[index]
         labels, img, size = ImgTransform.ResizeImageWithLabel(labels, (512, 512), data=img)
         img = ImgTransform.ZeroMeanImage(img, config.r_mean, config.g_mean, config.b_mean)
+        img = img.transpose(2, 0, 1)
         return img, labels
 
     def train_data_transform(self, index):
         img = self.read_image(self.images_dir, index)
         labels = self.all_labels[index]
 
-        rotate_rand = random.random()
-        crop_rand = random.random()
+        rotate_rand = random.random() if config.use_rotate else 0
+        crop_rand = random.random() if config.use_crop else 0
         # rotate
         if rotate_rand > 0.5:
             labels, img, angle = ImgTransform.RotateImageWithLabel(labels, data=img)
@@ -133,13 +111,15 @@ class PixelLinkIC15Dataset(ICDAR15Dataset):
         if crop_rand > 0.5:
             scale = 0.1 + random.random() * 0.9
             labels, img, img_range = ImgTransform.CropImageWithLabel(labels, data=img, scale=scale)
-            labels = filter_labels(labels, method="rai")
+            labels = PixelLinkIC15Dataset.filter_labels(labels, method="rai")
         # resize
         labels, img, size = ImgTransform.ResizeImageWithLabel(labels, (512, 512), data=img)
         # filter unsatifactory labels
-        labels = filter_labels(labels, method="msi")
+        labels = PixelLinkIC15Dataset.filter_labels(labels, method="msi")
         # zero mean
         img = ImgTransform.ZeroMeanImage(img, config.r_mean, config.g_mean, config.b_mean)
+        # HWC to CHW
+        img = img.transpose(2, 0, 1)
         return img, labels
 
     @staticmethod
@@ -169,7 +149,7 @@ class PixelLinkIC15Dataset(ICDAR15Dataset):
         if method == "msi":
             ignore = list(map(min_side_ignore, labels["coor"]))
         elif method == "rai":
-            ignore = list(map(min_side_ignore, labels["coor"], labels["area"]))
+            ignore = list(map(remain_area_ignore, labels["coor"], labels["area"]))
         else:
             ignore = [False] * 8
         labels["ignore"] = list(map(lambda a, b: a or b, labels["ignore"], ignore))
@@ -186,7 +166,7 @@ class PixelLinkIC15Dataset(ICDAR15Dataset):
         factor = 2 if version == "2s" else 4
 
         label = np.array(label)
-        label.reshape([-1, 1, 4, 2])
+        label = label.reshape([-1, 1, 4, 2])
         pixel_mask_size = [int(i / factor) for i in img_size]
         link_mask_size = [neighbors, ] + pixel_mask_size
 
@@ -202,7 +182,7 @@ class PixelLinkIC15Dataset(ICDAR15Dataset):
         # area_per_box = []
         for i in range(label.shape[0]):
             pixel_mask_tmp = np.zeros(pixel_mask_size, dtype=np.uint8)
-            cv2.drawContours(pixel_mask_tmp, [label[i]], -1, 1, thickness=-1)
+            cv2.drawContours(pixel_mask_tmp, label[i], -1, 1, thickness=-1)
             pixel_mask += pixel_mask_tmp
         neg_pixel_mask = (pixel_mask == 0).astype(np.uint8)
         pixel_mask[pixel_mask != 1] = 0
@@ -211,7 +191,7 @@ class PixelLinkIC15Dataset(ICDAR15Dataset):
 
         for i in range(label.shape[0]):
             pixel_mask_tmp = np.zeros(pixel_mask_size, dtype=np.uint8)
-            cv2.drawContours(pixel_mask_tmp, [label[i]], -1, 1, thickness=-1)
+            cv2.drawContours(pixel_mask_tmp, label[i], -1, 1, thickness=-1)
             pixel_mask_tmp *= pixel_mask
             if np.count_nonzero(pixel_mask_tmp) > 0:
                 real_box_num += 1

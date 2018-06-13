@@ -190,6 +190,7 @@ def ZeroMeanImage(img, r_mean, g_mean, b_mean):
     """
     img: numpy array of H*W*C
     """
+    img = img.astype(np.float)
     img[..., 0] -= r_mean
     img[..., 1] -= g_mean
     img[..., 2] -= b_mean
@@ -199,6 +200,7 @@ def UnzeroMeanImage(img, r_mean, g_mean, b_mean):
     """
     img: numpy array of H*W*C
     """
+    img = img.astype(np.float)
     img[..., 0] += r_mean
     img[..., 1] += g_mean
     img[..., 2] += b_mean
