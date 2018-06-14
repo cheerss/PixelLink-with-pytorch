@@ -67,6 +67,7 @@ def mask_to_box(pixel_mask, link_mask, neighbors=8, scale=4):
             # print(contours[0])
             bounding_box = cv2.minAreaRect(contours[0])
             bounding_box = cv2.boxPoints(bounding_box)
+            # bounding_box = bounding_box.reshape(8)
             bounding_box = np.clip(bounding_box * scale, 0, 128 * scale - 1).astype(np.int)
             # import IPython
             # IPython.embed()

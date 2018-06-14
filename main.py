@@ -15,6 +15,7 @@ import os
 import cv2
 import time
 import argparse
+import ImgLib.ImgShow as ImgShow
 
 # os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 parser = argparse.ArgumentParser(description='')
@@ -51,7 +52,7 @@ def test_model():
         for i in range(config.batch_size):
         # for i in range(1):
             image = sample['image'][i].data.numpy()
-            # label = sample['label'][i]["coor"]
+            # label = sample['label']["coor"][i]
             # label = dataset.get_label(i_batch * config.batch_size + i)
             pixel_out = out_1[i]
             link_out = out_2[i]
@@ -61,8 +62,8 @@ def test_model():
             image = image[(2, 1, 0), ...]
             image = np.transpose(image, (1, 2, 0))
             shape = image.shape
-            # image = image.reshape([int(shape[0]/4), 4, int(shape[1]/4), 4, shape[2]])
-            # image = image.max(axis=(1, 3))
+            image = image.reshape([int(shape[0]/4), 4, int(shape[1]/4), 4, shape[2]])
+            image = image.max(axis=(1, 3))
             image = np.ascontiguousarray(image)
             # image = test_res(image, pixel_out, link_out)
             # all_boxes = postprocess.mask_to_box(pixel_out, link_out)
@@ -73,6 +74,7 @@ def test_model():
             all_boxes[i] = np.array(all_boxes[i])
             cv2.drawContours(image, all_boxes[i], -1, (0, 255, 0), thickness=1)
             # cv2.drawContours(image, label, -1, (255, 0, 0), thickness=1)
+            # image = ImgShow.DrawLabels(image, label, color_format="BGR")
             cv2.imwrite("res" + str(i) + ".jpg", image)
             print(i)
         batch += 1
@@ -96,7 +98,7 @@ def retrain():
                             momentum=config.momentum, weight_decay=config.weight_decay)
     optimizer2 = optim.SGD(my_net.parameters(), lr=config.retrain_learning_rate, \
                             momentum=config.momentum, weight_decay=config.weight_decay)
-    train(config.retrain_epoch, 119400, dataloader, my_net, optimizer, optimizer2, device)
+    train(config.retrain_epoch, config.retrain_model_index, dataloader, my_net, optimizer, optimizer2, device)
 
 
 def train(epoch, iteration, dataloader, my_net, optimizer, optimizer2, device):

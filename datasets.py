@@ -12,6 +12,7 @@ import os
 import numpy as np
 from torchvision import transforms
 import ImgLib.ImgTransform as ImgTransform
+import ImgLib.util
 
 class ICDAR15Dataset(Dataset):
     def __init__(self, images_dir, labels_dir):
@@ -164,6 +165,26 @@ class PixelLinkIC15Dataset(ICDAR15Dataset):
             7 - 3
             6 5 4
         """
+        def is_valid_coor(h_index, w_index, h, w):
+            if h_index < 0 or w_index < 0:
+                return False
+            elif h_index >= h or w_index >= w:
+                return False
+            else:
+                return True
+
+        def get_neighbors(h_index, w_index):
+            res = []
+            res.append([h_index - 1, w_index - 1])
+            res.append([h_index - 1, w_index])
+            res.append([h_index - 1, w_index + 1])
+            res.append([h_index, w_index + 1])
+            res.append([h_index + 1, w_index + 1])
+            res.append([h_index + 1, w_index])
+            res.append([h_index + 1, w_index - 1])
+            res.append([h_index, w_index - 1])
+            return res
+
         factor = 2 if version == "2s" else 4
         label_coor = np.array(label["coor"]).reshape([-1, 1, 4, 2])
         pixel_mask_size = [int(i / factor) for i in img_size]
@@ -171,7 +192,45 @@ class PixelLinkIC15Dataset(ICDAR15Dataset):
         pixel_mask = np.zeros(pixel_mask_size, dtype=np.uint8)
         pixel_weight = np.zeros(pixel_mask_size, dtype=np.float)
         link_mask = np.zeros(link_mask_size, dtype=np.uint8)
+        label_coor = (label_coor / factor).astype(int)
 
+        bbox_masks = []
+        num_positive_bboxes = 0
+        for i, coor in enumerate(label_coor):
+            pixel_mask_tmp = np.zeros(pixel_mask_size, dtype=np.uint8)
+            cv2.drawContours(pixel_mask_tmp, coor, -1, 1, thickness=-1)
+            bbox_masks.append(pixel_mask_tmp)
+            if not label["ignore"][i]:
+                pixel_mask += pixel_mask_tmp
+                num_positive_bboxes += 1
+        pos_pixel_mask = (pixel_mask == 1).astype(np.int)
+        num_pos_pixels = np.sum(pos_pixel_mask)
+        sum_mask = np.sum(bbox_masks, axis=0)
+        neg_pixel_mask = (sum_mask != 1).astype(np.int)
+        not_overlapped_mask = sum_mask == 1
+        for bbox_index, bbox_mask in enumerate(bbox_masks):
+            bbox_positive_pixel_mask = bbox_mask * pos_pixel_mask
+            num_pos_pixel = np.sum(bbox_positive_pixel_mask)
+            if num_pos_pixel > 0:
+                per_bbox_weight = num_pos_pixels * 1.0 / num_positive_bboxes
+                per_pixel_weight = per_bbox_weight / num_pos_pixel
+                pixel_weight += bbox_positive_pixel_mask * per_pixel_weight
+            for link_index in range(neighbors):
+                link_mask[link_index][np.where(bbox_positive_pixel_mask)] = 1
+            bbox_contours = ImgLib.util.find_contours(bbox_positive_pixel_mask)
+            bbox_border_mask = np.zeros(pixel_mask_size, dtype=np.int)
+            bbox_border_mask *= bbox_positive_pixel_mask
+            bbox_border_cords = np.where(bbox_border_mask)
+            border_points = list(zip(*bbox_border_cords))
+            def in_bbox(nx, ny):
+                return bbox_positive_pixel_mask[ny, nx]
+            for h_index, w_index in border_points:
+                neighbors = get_neighbors(h_index, w_index)
+                for nei_index, [nei_h_index, nei_w_index] in enumerate(neighbors):
+                    if not is_valid_coor(h_index, w_index, *img_size) or not in_bbox(nei_h_index, nei_w_index):
+                        link_mask[nei_index, h_index, w_index] = 0
+        return torch.LongTensor(pixel_mask), torch.LongTensor(neg_pixel_mask), \
+            torch.Tensor(pixel_weight), torch.LongTensor(link_mask)
 
     @staticmethod
     def label_to_mask_and_pixel_pos_weight(label, img_size, version="2s", neighbors=8):
