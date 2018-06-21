@@ -13,7 +13,8 @@ def mask_filter(pixel_mask, link_mask, neighbors=8, scale=4):
     mask_width = link_mask.size(3)
     pixel_class = nn.Softmax2d()(pixel_mask)
     # print(pixel_class.shape)
-    pixel_class = pixel_class[:, 1] > 0.4
+    pixel_class = pixel_class[:, 1] > 0.7
+    # print(pixel_class.shape)
     # pixel_class = pixel_mask[:, 1] > pixel_mask[:, 0]
     # link_neighbors = torch.ByteTensor([batch_size, neighbors, mask_height, mask_width])
     link_neighbors = torch.zeros([batch_size, neighbors, mask_height, mask_width], \
@@ -23,10 +24,12 @@ def mask_filter(pixel_mask, link_mask, neighbors=8, scale=4):
         # print(link_mask[:, [2 * i, 2 * i + 1]].shape)
         tmp = nn.Softmax2d()(link_mask[:, [2 * i, 2 * i + 1]])
         # print(tmp.shape)
-        link_neighbors[:, i] = tmp[:, 1] > 0.4
+        link_neighbors[:, i] = tmp[:, 1] > 0.7
         # link_neighbors[:, i] = link_mask[:, 2 * i + 1] > link_mask[:, 2 * i] 
-        link_neighbors[:, i] = link_neighbors[:, i] & pixel_class[i]
+        link_neighbors[:, i] = link_neighbors[:, i] & pixel_class
     # res_mask = np.zeros([batch_size, mask_height, mask_width], dtype=np.uint8)
+    pixel_class = pixel_class.cpu().numpy()
+    link_neighbors = link_neighbors.cpu().numpy()
     return pixel_class, link_neighbors
 
 def mask_to_box(pixel_mask, link_mask, neighbors=8, scale=4):
@@ -34,12 +37,19 @@ def mask_to_box(pixel_mask, link_mask, neighbors=8, scale=4):
     pixel_mask: batch_size * 2 * H * W
     link_mask: batch_size * 16 * H * W
     """
+    def distance(a, b):
+        return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
+    def short_side_filter(bounding_box):
+        for i, point in enumerate(bounding_box):
+            if distance(point, bounding_box[(i+1)%4]) < 5**2:
+                return True # ignore it
+        return False # do not ignore
     batch_size = link_mask.size(0)
     mask_height = link_mask.size(2)
     mask_width = link_mask.size(3)
     pixel_class = nn.Softmax2d()(pixel_mask)
     # print(pixel_class.shape)
-    pixel_class = pixel_class[:, 1] > 0.4
+    pixel_class = pixel_class[:, 1] > 0.7
     # pixel_class = pixel_mask[:, 1] > pixel_mask[:, 0]
     # link_neighbors = torch.ByteTensor([batch_size, neighbors, mask_height, mask_width])
     link_neighbors = torch.zeros([batch_size, neighbors, mask_height, mask_width], \
@@ -49,24 +59,32 @@ def mask_to_box(pixel_mask, link_mask, neighbors=8, scale=4):
         # print(link_mask[:, [2 * i, 2 * i + 1]].shape)
         tmp = nn.Softmax2d()(link_mask[:, [2 * i, 2 * i + 1]])
         # print(tmp.shape)
-        link_neighbors[:, i] = tmp[:, 1] > 0.4
+        link_neighbors[:, i] = tmp[:, 1] > 0.7
         # link_neighbors[:, i] = link_mask[:, 2 * i + 1] > link_mask[:, 2 * i] 
-        link_neighbors[:, i] = link_neighbors[:, i] & pixel_class[i]
+        link_neighbors[:, i] = link_neighbors[:, i] & pixel_class
     # res_mask = np.zeros([batch_size, mask_height, mask_width], dtype=np.uint8)
     all_boxes = []
+    # res_masks = []
     for i in range(batch_size):
         res_mask = func(pixel_class[i], link_neighbors[i])
         box_num = np.amax(res_mask)
         # print(res_mask.any())
         bounding_boxes = []
-        for i in range(box_num):
+        for i in range(1, box_num + 1):
             box_mask = (res_mask == i).astype(np.uint8)
-            # if box_mask.sum() < 10:
+            # res_masks.append(box_mask)
+            if box_mask.sum() < 100:
+                pass
+                # print("<150")
                 # continue
             box_mask, contours, _ = cv2.findContours(box_mask, mode=cv2.RETR_EXTERNAL, method=cv2.CHAIN_APPROX_NONE)
             # print(contours[0])
             bounding_box = cv2.minAreaRect(contours[0])
             bounding_box = cv2.boxPoints(bounding_box)
+            if short_side_filter(bounding_box):
+                # print("<5")
+                pass
+                continue
             # bounding_box = bounding_box.reshape(8)
             bounding_box = np.clip(bounding_box * scale, 0, 128 * scale - 1).astype(np.int)
             # import IPython

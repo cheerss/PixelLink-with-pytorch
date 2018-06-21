@@ -31,8 +31,8 @@ neg_pos_ratio = 3 # parameter r in paper
 train_images_dir = "train_images/images/"
 train_labels_dir = "train_images/ground_truth/"
 saving_model_dir = "models/"
-retrain_model_index = 25400 # retrain from which model, e.g. ${saving_model_dir}/156600.mdl
-test_model_index = 26000 # test for which model, e.g. ${saving_model_dir}/156600.mdl
+retrain_model_index = 26200 # retrain from which model, e.g. ${saving_model_dir}/156600.mdl
+test_model_index = 43800 # test for which model, e.g. ${saving_model_dir}/156600.mdl
 test_batch = 1
 # saving_model_dir1 = "standard_models/"
 # saving_model_dir2 = "change_models/"
@@ -40,5 +40,5 @@ test_batch = 1
 
 retrain_epoch = 60000
 retrain_learning_rate = 1e-2
-retrain_learning_rate2 = 1e-2
+retrain_learning_rate2 = 3e-3
 

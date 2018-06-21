@@ -52,7 +52,7 @@ def testTransformWithLabel():
 
 def main():
     testTransform()
-    testTransformWithLabel()
+    # testTransformWithLabel()
 
 if __name__ == '__main__':
     main()

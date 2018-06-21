@@ -16,6 +16,9 @@ import cv2
 import time
 import argparse
 import ImgLib.ImgShow as ImgShow
+import ImgLib.ImgTransform as ImgTransform
+import moduletest.test_postprocess as test_postprocess
+from test_model import test_on_train_dataset
 
 # os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 parser = argparse.ArgumentParser(description='')
@@ -28,58 +31,6 @@ def weight_init(m):
     if isinstance(m, nn.Conv2d):
         nn.init.xavier_uniform_(m.weight.data)
         nn.init.constant_(m.bias.data, 0)
-
-def test_model():
-    dataset = datasets.PixelLinkIC15Dataset(config.train_images_dir, config.train_labels_dir, train=False)
-    dataloader = DataLoader(dataset, batch_size=config.batch_size, shuffle=False)
-    my_net = net.Net()
-    if config.gpu:
-        device = torch.device("cuda:0")
-        my_net = my_net.cuda()
-        if config.multi_gpu:
-            my_net = nn.DataParallel(my_net)
-    else:
-        device = torch.device("cpu")
-    my_net.load_state_dict(torch.load(config.saving_model_dir + '%d.mdl' % config.test_model_index))
-
-    batch = 0
-    for i_batch, sample in enumerate(dataloader):
-        images = sample['image'].to(device)
-        with torch.no_grad():
-            out_1, out_2 = my_net.forward(images)
-        all_boxes = postprocess.mask_to_box(out_1, out_2)
-
-        for i in range(config.batch_size):
-        # for i in range(1):
-            image = sample['image'][i].data.numpy()
-            # label = sample['label']["coor"][i]
-            # label = dataset.get_label(i_batch * config.batch_size + i)
-            pixel_out = out_1[i]
-            link_out = out_2[i]
-            image[0] += config.r_mean
-            image[1] += config.g_mean
-            image[2] += config.b_mean
-            image = image[(2, 1, 0), ...]
-            image = np.transpose(image, (1, 2, 0))
-            shape = image.shape
-            image = image.reshape([int(shape[0]/4), 4, int(shape[1]/4), 4, shape[2]])
-            image = image.max(axis=(1, 3))
-            image = np.ascontiguousarray(image)
-            # image = test_res(image, pixel_out, link_out)
-            # all_boxes = postprocess.mask_to_box(pixel_out, link_out)
-            # print(all_boxes[i])
-            # for j in range(len(all_boxes[i])):
-            #     all_boxes[i][j] = all_boxes[i][j].tolist()
-            # print(all_boxes[i])
-            all_boxes[i] = np.array(all_boxes[i])
-            cv2.drawContours(image, all_boxes[i], -1, (0, 255, 0), thickness=1)
-            # cv2.drawContours(image, label, -1, (255, 0, 0), thickness=1)
-            # image = ImgShow.DrawLabels(image, label, color_format="BGR")
-            cv2.imwrite("res" + str(i) + ".jpg", image)
-            print(i)
-        batch += 1
-        if batch >= config.test_batch:
-            break
 
 def retrain():
     dataset = datasets.PixelLinkIC15Dataset(config.train_images_dir, config.train_labels_dir)
@@ -179,4 +130,5 @@ if __name__ == "__main__":
     elif args.train:
         main()
     else:
-        test_model()
+        test_on_train_dataset()
+        # test_model()
