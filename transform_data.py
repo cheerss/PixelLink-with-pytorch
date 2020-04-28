@@ -46,7 +46,7 @@ def resize_images():
 def resize_labels():
     all_labels = read_data.read_ground_truth(train_labels_dir, config.all_trains)
     image_width = config.image_width
-    image_height = config.image_width
+    image_height = config.image_height
     j = 1
     for boxes in all_labels:
         with open(save_labels_dir + "gt_img_" + str(j) + ".txt", "w") as f:
